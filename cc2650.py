@@ -11,8 +11,15 @@ Adapted by Ashwin from the following sources:
 import asyncio
 import platform
 import struct
+import time
+import json
+import requests
+import pickle
 
 from bleak import BleakClient
+
+global accelDataPoints_10
+global gyroDataPoints_10
 
 
 class Service:
@@ -100,21 +107,12 @@ class AccelerometerSensorMovementSensorMPU9250(MovementSensorMPU9250SubService):
 
     def cb_sensor(self, data):
         '''Returns (x_accel, y_accel, z_accel) in units of g'''
+        global accelDataPoints_10
         rawVals = data[3:6]
-        print("[MovementSensor] Accelerometer:", tuple([ v*self.scale for v in rawVals ]))
-
-
-class MagnetometerSensorMovementSensorMPU9250(MovementSensorMPU9250SubService):
-    def __init__(self):
-        super().__init__()
-        self.bits = MovementSensorMPU9250.MAG_XYZ
-        self.scale = 4912.0 / 32760
-        # Reference: MPU-9250 register map v1.4
-
-    def cb_sensor(self, data):
-        '''Returns (x_mag, y_mag, z_mag) in units of uT'''
-        rawVals = data[6:9]
-        print("[MovementSensor] Magnetometer:", tuple([ v*self.scale for v in rawVals ]))
+        
+        if len(accelDataPoints_10) < 10:
+            accelDataPoints_10.append(tuple([ v*self.scale for v in rawVals ]))
+        #print("[MovementSensor] Accelerometer:", tuple([ v*self.scale for v in rawVals ]))
 
 
 class GyroscopeSensorMovementSensorMPU9250(MovementSensorMPU9250SubService):
@@ -125,103 +123,59 @@ class GyroscopeSensorMovementSensorMPU9250(MovementSensorMPU9250SubService):
 
     def cb_sensor(self, data):
         '''Returns (x_gyro, y_gyro, z_gyro) in units of degrees/sec'''
+        global gyroDataPoints_10
         rawVals = data[0:3]
-        print("[MovementSensor] Gyroscope:", tuple([ v*self.scale for v in rawVals ]))
+        if len(gyroDataPoints_10) < 10:
+            gyroDataPoints_10.append(tuple([ v*self.scale for v in rawVals ]))
+        else:
+            print(len(accelDataPoints_10))
+            while(len(accelDataPoints_10) < 10):
+                time.sleep(1.0)
+            postToAws()
+        #print("[MovementSensor] Gyroscope:", tuple([ v*self.scale for v in rawVals ]))
 
+def postToAws():
+    global gyroDataPoints_10
+    global accelDataPoints_10
 
-class OpticalSensor(Sensor):
-    def __init__(self):
-        super().__init__()
-        self.data_uuid = "f000aa71-0451-4000-b000-000000000000"
-        self.ctrl_uuid = "f000aa72-0451-4000-b000-000000000000"
+    data = {
+        "Gyro": gyroDataPoints_10,
+        "Accel": accelDataPoints_10,
+        "Result": 1
+    }
 
-    def callback(self, sender: int, data: bytearray):
-        raw = struct.unpack('<h', data)[0]
-        m = raw & 0xFFF
-        e = (raw & 0xF000) >> 12
-        print("[OpticalSensor] Reading from light sensor:", 0.01 * (m << e))
-
-
-class HumiditySensor(Sensor):
-    def __init__(self):
-        super().__init__()
-        self.data_uuid = "f000aa21-0451-4000-b000-000000000000"
-        self.ctrl_uuid = "f000aa22-0451-4000-b000-000000000000"
-
-    def callback(self, sender: int, data: bytearray):
-        (rawT, rawH) = struct.unpack('<HH', data)
-        temp = -40.0 + 165.0 * (rawT / 65536.0)
-        RH = 100.0 * (rawH/65536.0)
-        print(f"[HumiditySensor] Ambient temp: {temp}; Relative Humidity: {RH}")
-
-
-class BarometerSensor(Sensor):
-    def __init__(self):
-        super().__init__()
-        self.data_uuid = "f000aa41-0451-4000-b000-000000000000"
-        self.ctrl_uuid = "f000aa42-0451-4000-b000-000000000000"
-
-    def callback(self, sender: int, data: bytearray):
-        (tL, tM, tH, pL, pM, pH) = struct.unpack('<BBBBBB', data)
-        temp = (tH*65536 + tM*256 + tL) / 100.0
-        press = (pH*65536 + pM*256 + pL) / 100.0
-        print(f"[BarometerSensor] Ambient temp: {temp}; Pressure Millibars: {press}")
-
-
-class LEDAndBuzzer(Service):
-    """
-        Adapted from various sources. Src: https://evothings.com/forum/viewtopic.php?t=1514 and the original TI spec
-        from https://processors.wiki.ti.com/index.php/CC2650_SensorTag_User's_Guide#Activating_IO
-
-        Codes:
-            1 = red
-            2 = green
-            3 = red + green
-            4 = buzzer
-            5 = red + buzzer
-            6 = green + buzzer
-            7 = all
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.data_uuid = "f000aa65-0451-4000-b000-000000000000"
-        self.ctrl_uuid = "f000aa66-0451-4000-b000-000000000000"
-
-    async def notify(self, client, code):
-        # enable the config
-        write_value = bytearray([0x01])
-        await client.write_gatt_char(self.ctrl_uuid, write_value)
-
-        # turn on the red led as stated from the list above using 0x01
-        write_value = bytearray([code])
-        await client.write_gatt_char(self.data_uuid, write_value)
-
+    uri = 'http://ec2-35-164-33-157.us-west-2.compute.amazonaws.com:3237'
+    header = {'Content-type': 'application/json'}
+    requests.post(uri+'/put', headers=header, data=pickle.dumps(data))
+    # requests.post(uri+'/get')
+    
+    gyroDataPoints_10.clear()
+    accelDataPoints_10.clear()
 
 async def run(address):
     async with BleakClient(address) as client:
         x = await client.is_connected()
         print("Connected: {0}".format(x))
 
-        led_and_buzzer = LEDAndBuzzer()
+        # led_and_buzzer = LEDAndBuzzer()
 
-        light_sensor = OpticalSensor()
-        await light_sensor.start_listener(client)
+        # light_sensor = OpticalSensor()
+        # await light_sensor.start_listener(client)
 
-        humidity_sensor = HumiditySensor()
-        await humidity_sensor.start_listener(client)
+        # humidity_sensor = HumiditySensor()
+        # await humidity_sensor.start_listener(client)
 
-        barometer_sensor = BarometerSensor()
-        await barometer_sensor.start_listener(client)
+        # barometer_sensor = BarometerSensor()
+        # await barometer_sensor.start_listener(client)
 
         acc_sensor = AccelerometerSensorMovementSensorMPU9250()
         gyro_sensor = GyroscopeSensorMovementSensorMPU9250()
-        magneto_sensor = MagnetometerSensorMovementSensorMPU9250()
+        # magneto_sensor = MagnetometerSensorMovementSensorMPU9250()
 
         movement_sensor = MovementSensorMPU9250()
         movement_sensor.register(acc_sensor)
         movement_sensor.register(gyro_sensor)
-        movement_sensor.register(magneto_sensor)
+        # movement_sensor.register(magneto_sensor)
         await movement_sensor.start_listener(client)
 
         cntr = 0
@@ -231,13 +185,13 @@ async def run(address):
             # unless the object is stored
             await asyncio.sleep(1.0)
 
-            if cntr == 0:
+            # if cntr == 0:
                 # shine the red light
-                await led_and_buzzer.notify(client, 0x01)
+                # await led_and_buzzer.notify(client, 0x01)
 
-            if cntr == 5:
+            # if cntr == 5:
                 # shine the green light
-                await led_and_buzzer.notify(client, 0x02)
+                # await led_and_buzzer.notify(client, 0x02)
 
             cntr += 1
 
@@ -250,15 +204,100 @@ if __name__ == "__main__":
     To find the address, once your sensor tag is blinking the green led after pressing the button, run the discover.py
     file which was provided as an example from bleak to identify the sensor tag device
     """
-
     import os
+
+    global accelDataPoints_10
+    global gyroDataPoints_10
+    
+    accelDataPoints_10 = []
+    gyroDataPoints_10 = []
 
     os.environ["PYTHONASYNCIODEBUG"] = str(1)
     address = (
-        "54:6c:0e:b5:56:00"
+        "F0:F8:F2:86:BB:85"
         if platform.system() != "Darwin"
         else "6FFBA6AE-0802-4D92-B1CD-041BE4B4FEB9"
     )
     loop = asyncio.get_event_loop()
     loop.run_until_complete(run(address))
     loop.run_forever()
+
+
+# class MagnetometerSensorMovementSensorMPU9250(MovementSensorMPU9250SubService):
+#     def __init__(self):
+#         super().__init__()
+#         self.bits = MovementSensorMPU9250.MAG_XYZ
+#         self.scale = 4912.0 / 32760
+#         # Reference: MPU-9250 register map v1.4
+
+#     def cb_sensor(self, data):
+#         '''Returns (x_mag, y_mag, z_mag) in units of uT'''
+#         rawVals = data[6:9]
+#         print("[MovementSensor] Magnetometer:", tuple([ v*self.scale for v in rawVals ]))
+
+# class LEDAndBuzzer(Service):
+#     """
+#         Adapted from various sources. Src: https://evothings.com/forum/viewtopic.php?t=1514 and the original TI spec
+#         from https://processors.wiki.ti.com/index.php/CC2650_SensorTag_User's_Guide#Activating_IO
+
+#         Codes:
+#             1 = red
+#             2 = green
+#             3 = red + green
+#             4 = buzzer
+#             5 = red + buzzer
+#             6 = green + buzzer
+#             7 = all
+#     """
+
+#     def __init__(self):
+#         super().__init__()
+#         self.data_uuid = "f000aa65-0451-4000-b000-000000000000"
+#         self.ctrl_uuid = "f000aa66-0451-4000-b000-000000000000"
+
+#     async def notify(self, client, code):
+#         # enable the config
+#         write_value = bytearray([0x01])
+#         await client.write_gatt_char(self.ctrl_uuid, write_value)
+
+#         # turn on the red led as stated from the list above using 0x01
+#         write_value = bytearray([code])
+#         await client.write_gatt_char(self.data_uuid, write_value)
+
+# class OpticalSensor(Sensor):
+#     def __init__(self):
+#         super().__init__()
+#         self.data_uuid = "f000aa71-0451-4000-b000-000000000000"
+#         self.ctrl_uuid = "f000aa72-0451-4000-b000-000000000000"
+
+#     def callback(self, sender: int, data: bytearray):
+#         raw = struct.unpack('<h', data)[0]
+#         m = raw & 0xFFF
+#         e = (raw & 0xF000) >> 12
+#         print("[OpticalSensor] Reading from light sensor:", 0.01 * (m << e))
+
+
+# class HumiditySensor(Sensor):
+#     def __init__(self):
+#         super().__init__()
+#         self.data_uuid = "f000aa21-0451-4000-b000-000000000000"
+#         self.ctrl_uuid = "f000aa22-0451-4000-b000-000000000000"
+
+#     def callback(self, sender: int, data: bytearray):
+#         (rawT, rawH) = struct.unpack('<HH', data)
+#         temp = -40.0 + 165.0 * (rawT / 65536.0)
+#         RH = 100.0 * (rawH/65536.0)
+#         print(f"[HumiditySensor] Ambient temp: {temp}; Relative Humidity: {RH}")
+
+
+# class BarometerSensor(Sensor):
+#     def __init__(self):
+#         super().__init__()
+#         self.data_uuid = "f000aa41-0451-4000-b000-000000000000"
+#         self.ctrl_uuid = "f000aa42-0451-4000-b000-000000000000"
+
+#     def callback(self, sender: int, data: bytearray):
+#         (tL, tM, tH, pL, pM, pH) = struct.unpack('<BBBBBB', data)
+#         temp = (tH*65536 + tM*256 + tL) / 100.0
+#         press = (pH*65536 + pM*256 + pL) / 100.0
+#         print(f"[BarometerSensor] Ambient temp: {temp}; Pressure Millibars: {press}")
