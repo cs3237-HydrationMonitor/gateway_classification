@@ -112,7 +112,7 @@ class AccelerometerSensorMovementSensorMPU9250(MovementSensorMPU9250SubService):
         
         if len(accelDataPoints_10) < 10:
             accelDataPoints_10.append(tuple([ v*self.scale for v in rawVals ]))
-        #print("[MovementSensor] Accelerometer:", tuple([ v*self.scale for v in rawVals ]))
+        # print("[MovementSensor] Accelerometer:", tuple([ v*self.scale for v in rawVals ]))
 
 
 class GyroscopeSensorMovementSensorMPU9250(MovementSensorMPU9250SubService):
@@ -128,13 +128,15 @@ class GyroscopeSensorMovementSensorMPU9250(MovementSensorMPU9250SubService):
         if len(gyroDataPoints_10) < 10:
             gyroDataPoints_10.append(tuple([ v*self.scale for v in rawVals ]))
         else:
-            print(len(accelDataPoints_10))
             while(len(accelDataPoints_10) < 10):
                 time.sleep(1.0)
             postToAws()
-        #print("[MovementSensor] Gyroscope:", tuple([ v*self.scale for v in rawVals ]))
+        # print("[MovementSensor] Gyroscope:", tuple([ v*self.scale for v in rawVals ]))
 
 def postToAws():
+    
+    # print("\nPosting to AWS\n")
+
     global gyroDataPoints_10
     global accelDataPoints_10
 
@@ -151,6 +153,8 @@ def postToAws():
     
     gyroDataPoints_10.clear()
     accelDataPoints_10.clear()
+
+    # print("Post to AWS Complete\n")
 
 async def run(address):
     async with BleakClient(address) as client:
