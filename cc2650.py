@@ -15,6 +15,8 @@ import time
 import json
 import requests
 import pickle
+import sys
+import os
 
 from bleak import BleakClient
 
@@ -208,7 +210,10 @@ if __name__ == "__main__":
     To find the address, once your sensor tag is blinking the green led after pressing the button, run the discover.py
     file which was provided as an example from bleak to identify the sensor tag device
     """
-    import os
+    
+    if len(sys.argv) != 3:
+        print("Please input the mac adddress and IP of URI of AWS Server")
+        quit()
 
     global accelDataPoints_10
     global gyroDataPoints_10
