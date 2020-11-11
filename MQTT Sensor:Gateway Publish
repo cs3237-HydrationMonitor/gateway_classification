@@ -1,0 +1,37 @@
+#client Sensor/Gateway Publish
+
+import paho.mqtt.client as client
+import ssl
+import time
+
+# Define Variables
+client_PORT = 1883
+client_KEEPALIVE_INTERVAL = 60
+client_TOPIC = "SensorData/#"
+#parse and input data below
+client_MSG = "hello client"
+
+client_HOST = "put your Custom Endpoint here"
+CA_ROOT_CERT_FILE = "put AWS IoT Root Certificate File Name here"
+THING_CERT_FILE = "put your Thing's Certificate File Name here"
+THING_PRIVATE_KEY = "put your Thing's Private Key File Name here"
+
+def on_publish(client, userdata, mid):
+	print "Message Published..."
+
+client = mqtt.Client()
+
+client.on_publish = on_publish
+
+# Configure TLS Set
+client.tls_set(CA_ROOT_CERT_FILE, certfile=THING_CERT_FILE, keyfile=THING_PRIVATE_KEY, cert_reqs=ssl.CERT_REQUIRED, tls_version=ssl.PROTOCOL_TLSv1_2, ciphers=None)
+
+# Connect with client Broker
+client.connect(client_HOST, client_PORT, client_KEEPALIVE_INTERVAL)
+client.loop_start()
+
+counter = 0
+while True:
+	client.publish(client_TOPIC,client_MSG + str(counter),qos=1)
+	counter += 1
+	time.sleep(1)
