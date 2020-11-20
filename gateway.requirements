@@ -88,3 +88,4 @@ widgetsnbextension==3.5.1
 wrapt==1.12.1
 zipp==3.1.0
 bleak==0.9.1
+paho-mqtt=1.5.1

@@ -3,6 +3,7 @@
 ## Setting up
 - After cloning the repository to your machine, run `pythom -m venv venv` to create a virtual python environment in the directory.
 - Activate the python environment and then run `pip install -r gateway.requirements` to setup the necessary packages for the code to run.
+- Run the `python gateway.py <MAC> <ServerIP>` in the python environment to begin data recording and classification.
 
 ## Connecting to the TI SensorTag device for CS3237
 
